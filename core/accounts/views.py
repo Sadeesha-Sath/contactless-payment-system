@@ -5,6 +5,7 @@ from django.contrib.auth.models import User
 from .models import UserProfile
 from .serializers import UserSerializer, UserProfileSerializer, BalanceUpdateSerializer
 from transactions.models import Transaction
+from typing import Dict, Any, cast
 
 class IsAdminUser(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -51,8 +52,9 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         serializer = BalanceUpdateSerializer(data=request.data)
         
         if serializer.is_valid():
-            amount = serializer.validated_data['amount']
-            description = serializer.validated_data.get('description', 'Balance added by admin')
+            validated_data: Dict[str, Any] = cast(Dict[str, Any], serializer.validated_data)
+            amount = validated_data['amount']
+            description = validated_data.get('description', 'Balance added by admin')
             
             # Create a TOP_UP transaction
             transaction = Transaction.objects.create(
@@ -77,8 +79,9 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         serializer = BalanceUpdateSerializer(data=request.data)
         
         if serializer.is_valid():
-            amount = serializer.validated_data['amount']
-            description = serializer.validated_data.get('description', 'Balance removed by admin')
+            validated_data: Dict[str, Any] = cast(Dict[str, Any], serializer.validated_data)
+            amount = validated_data['amount']
+            description = validated_data.get('description', 'Balance removed by admin')
             
             # Check if user has sufficient balance
             if profile.balance < amount:

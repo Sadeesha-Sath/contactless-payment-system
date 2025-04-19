@@ -19,7 +19,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     def get_qr_code_url(self, obj):
         request = self.context.get('request')
-        if obj.qr_code and hasattr(request, 'build_absolute_uri'):
+        if obj.qr_code and request is not None and hasattr(request, 'build_absolute_uri'):
             return request.build_absolute_uri(obj.qr_code.url)
         return None
 

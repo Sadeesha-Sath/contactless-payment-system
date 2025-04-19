@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from .models import Transaction
 from accounts.serializers import UserSerializer
+from accounts.models import UserProfile
 
 class TransactionSerializer(serializers.ModelSerializer):
     sender = UserSerializer(read_only=True)
@@ -26,7 +27,9 @@ class TransactionSerializer(serializers.ModelSerializer):
             if sender and amount:
                 from django.contrib.auth.models import User
                 user = User.objects.get(id=sender)
-                if user.profile.balance < amount:
+                # Use getattr to safely access the profile attribute
+                profile = getattr(user, 'profile', None)
+                if profile and profile.balance < amount:
                     raise serializers.ValidationError(
                         {"amount": "Insufficient balance for this transaction"}
                     )

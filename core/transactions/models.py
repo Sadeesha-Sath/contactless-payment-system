@@ -2,6 +2,11 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator
 from decimal import Decimal
+from typing import cast, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from accounts.models import UserProfile
+    User.profile = property(lambda self: cast('UserProfile', self.profile))
 
 class Transaction(models.Model):
     TRANSACTION_TYPES = (
@@ -27,20 +32,20 @@ class Transaction(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.transaction_type} - {self.amount} from {self.sender.username} to {self.receiver.username}"
+        return f"{self.transaction_type} Transaction - {self.amount} from {self.sender.username} to {self.receiver.username}"
 
     def save(self, *args, **kwargs):
         if self.status == 'COMPLETED':
             if self.transaction_type == 'PAYMENT':
-                self.sender.profile.balance -= self.amount
-                self.receiver.profile.balance += self.amount
+                self.sender.profile.balance -= self.amount  # type: ignore
+                self.receiver.profile.balance += self.amount  # type: ignore
             elif self.transaction_type == 'TOP_UP':
-                self.receiver.profile.balance += self.amount
+                self.receiver.profile.balance += self.amount  # type: ignore
             elif self.transaction_type == 'REFUND':
-                self.sender.profile.balance += self.amount
-                self.receiver.profile.balance -= self.amount
+                self.sender.profile.balance += self.amount  # type: ignore
+                self.receiver.profile.balance -= self.amount  # type: ignore
 
-            self.sender.profile.save()
-            self.receiver.profile.save()
+            self.sender.profile.save()  # type: ignore
+            self.receiver.profile.save()  # type: ignore
 
         super().save(*args, **kwargs) 
