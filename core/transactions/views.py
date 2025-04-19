@@ -5,11 +5,19 @@ from django.contrib.auth.models import User
 from .models import Transaction
 from .serializers import TransactionSerializer, PaymentSerializer
 from accounts.models import UserProfile
+from django.db.models import Q
+from rest_framework.pagination import PageNumberPagination
+
+class TransactionPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
 class TransactionViewSet(viewsets.ModelViewSet):
     queryset = Transaction.objects.all()
     serializer_class = TransactionSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = TransactionPagination
 
     def get_queryset(self):
         if self.request.user.is_staff:
@@ -23,6 +31,40 @@ class TransactionViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         # Set the sender to the current user
         serializer.save(sender=self.request.user)
+
+    @action(detail=False, methods=['get'])
+    def my_transactions(self, request):
+        """Get the current user's transactions with optional filtering and pagination"""
+        # Get query parameters for filtering
+        transaction_type = request.query_params.get('type', None)
+        status_filter = request.query_params.get('status', None)
+        
+        # Base queryset for the current user
+        queryset = Transaction.objects.filter(
+            Q(sender=request.user) | Q(receiver=request.user)
+        ).order_by('-created_at')
+        
+        # Apply filters if provided
+        if transaction_type:
+            queryset = queryset.filter(transaction_type=transaction_type.upper())
+        
+        if status_filter:
+            queryset = queryset.filter(status=status_filter.upper())
+        
+        # Paginate the results
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(queryset, request)
+        
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+        
+        # If pagination is disabled, return all results
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'count': queryset.count(),
+            'transactions': serializer.data
+        }, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['post'])
     def make_payment(self, request):
