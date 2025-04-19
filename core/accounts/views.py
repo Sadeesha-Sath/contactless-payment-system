@@ -30,6 +30,21 @@ class UserProfileViewSet(viewsets.ModelViewSet):
             return UserProfile.objects.all()
         return UserProfile.objects.filter(user=self.request.user)
 
+    @action(detail=False, methods=['get'])
+    def my_balance(self, request):
+        """Get the current user's balance"""
+        try:
+            profile = UserProfile.objects.get(user=request.user)
+            return Response({
+                'balance': profile.balance,
+                'currency': 'USD'  # You can make this configurable if needed
+            }, status=status.HTTP_200_OK)
+        except UserProfile.DoesNotExist:
+            return Response(
+                {'error': 'User profile not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def add_balance(self, request, pk=None):
         profile = self.get_object()
