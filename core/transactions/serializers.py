@@ -35,8 +35,3 @@ class TransactionSerializer(serializers.ModelSerializer):
                     )
         
         return data
-
-class PaymentSerializer(serializers.Serializer):
-    amount = serializers.DecimalField(max_digits=10, decimal_places=2)
-    description = serializers.CharField(required=False, allow_blank=True)
-    receiver_id = serializers.IntegerField() 

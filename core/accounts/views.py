@@ -3,9 +3,11 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.contrib.auth.models import User
 from .models import UserProfile
-from .serializers import UserSerializer, UserProfileSerializer, BalanceUpdateSerializer
+from .serializers import UserSerializer, UserProfileSerializer, BalanceUpdateSerializer, BatchUserCreationSerializer
 from transactions.models import Transaction
 from typing import Dict, Any, cast
+import csv
+from django.http import HttpResponse
 
 class IsAdminUser(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -20,6 +22,90 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
         if self.request.user.is_staff:
             return User.objects.all()
         return User.objects.filter(id=self.request.user.id)
+    
+    @action(detail=False, methods=['get'], permission_classes=[IsAdminUser])
+    def download_template(self, request):
+        """
+        Download a CSV template for batch user creation.
+        
+        This endpoint provides a sample CSV file with the correct format
+        for batch user creation, including example data.
+        """
+        # Create the HttpResponse object with CSV header
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="user_creation_template.csv"'
+        
+        # Create a CSV writer
+        writer = csv.writer(response)
+        
+        # Write the header row
+        writer.writerow([
+            'username', 'email', 'password', 'user_type', 
+            'first_name', 'last_name', 'initial_balance',
+            'vendor_name', 'vendor_description'
+        ])
+        
+        # Write example rows
+        writer.writerow([
+            'john_doe', 'john@example.com', 'securepassword123', 'USER',
+            'John', 'Doe', '100.00',
+            '', ''
+        ])
+        
+        writer.writerow([
+            'jane_smith', 'jane@example.com', 'securepassword456', 'USER',
+            'Jane', 'Smith', '50.00',
+            '', ''
+        ])
+        
+        writer.writerow([
+            'coffee_shop', 'coffee@example.com', 'securepassword789', 'VENDOR',
+            'Coffee', 'Shop', '0.00',
+            'Downtown Coffee Shop', 'Best coffee in town'
+        ])
+        
+        return response
+    
+    @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
+    def batch_create_users(self, request):
+        """
+        Create multiple users from a CSV file upload.
+        
+        CSV format should include the following columns:
+        - username (required): The username for the user
+        - email (required): The email address for the user
+        - password (required): The password for the user
+        - user_type (required): Either 'USER' or 'VENDOR'
+        - first_name (optional): The user's first name
+        - last_name (optional): The user's last name
+        - initial_balance (optional): Initial balance for the user (default: 0.00)
+        - vendor_name (optional, for vendors only): Name of the vendor business
+        - vendor_description (optional, for vendors only): Description of the vendor business
+        
+        This endpoint is only accessible to admin users.
+        """
+        serializer = BatchUserCreationSerializer(data=request.data)
+        
+        if serializer.is_valid():
+            csv_file = serializer.validated_data['csv_file']
+            results = serializer.process_csv(csv_file)
+            
+            if results['errors']:
+                return Response({
+                    'message': 'Some users could not be created',
+                    'success_count': len(results['success']),
+                    'error_count': len(results['errors']),
+                    'success': results['success'],
+                    'errors': results['errors']
+                }, status=status.HTTP_207_MULTI_STATUS)
+            
+            return Response({
+                'message': f'Successfully created {len(results["success"])} users',
+                'success_count': len(results['success']),
+                'success': results['success']
+            }, status=status.HTTP_201_CREATED)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class UserProfileViewSet(viewsets.ModelViewSet):
     queryset = UserProfile.objects.all()
@@ -114,7 +200,9 @@ class UserProfileViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def add_balance(self, request, pk=None):
+        """Add balance to a user's account (admin only)"""
         profile = self.get_object()
+        print(profile)
         serializer = BalanceUpdateSerializer(data=request.data)
         
         if serializer.is_valid():
@@ -132,15 +220,21 @@ class UserProfileViewSet(viewsets.ModelViewSet):
                 description=description
             )
             
+            # Update the user's balance
+            profile.balance += amount
+            profile.save()
+            
             return Response({
                 'message': f'Added {amount} to {profile.user.username}\'s balance',
-                'transaction_id': transaction.id
+                'transaction_id': transaction.id,
+                'new_balance': profile.balance
             }, status=status.HTTP_200_OK)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def remove_balance(self, request, pk=None):
+        """Remove balance from a user's account (admin only)"""
         profile = self.get_object()
         serializer = BalanceUpdateSerializer(data=request.data)
         
@@ -149,10 +243,10 @@ class UserProfileViewSet(viewsets.ModelViewSet):
             amount = validated_data['amount']
             description = validated_data.get('description', 'Balance removed by admin')
             
-            # Check if user has sufficient balance
-            if profile.balance < amount:
+            # Check if user has sufficient balance or is an admin
+            if profile.balance < amount and not profile.user.is_staff:
                 return Response(
-                    {'error': 'Insufficient balance to remove'},
+                    {'error': 'Insufficient balance to remove. Only admin users can have a negative balance.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
@@ -166,9 +260,14 @@ class UserProfileViewSet(viewsets.ModelViewSet):
                 description=description
             )
             
+            # Update the user's balance
+            profile.balance -= amount
+            profile.save()
+            
             return Response({
                 'message': f'Removed {amount} from {profile.user.username}\'s balance',
-                'transaction_id': transaction.id
+                'transaction_id': transaction.id,
+                'new_balance': profile.balance
             }, status=status.HTTP_200_OK)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST) 

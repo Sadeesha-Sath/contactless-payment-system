@@ -5,7 +5,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AbstractUser
 from .models import Transaction
-from .serializers import TransactionSerializer, PaymentSerializer
+from .serializers import TransactionSerializer
 from accounts.models import UserProfile
 from django.db.models import Q
 from rest_framework.pagination import PageNumberPagination
@@ -39,6 +39,80 @@ class TransactionViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         # Set the sender to the current user
         serializer.save(sender=self.request.user)
+
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAdminUser])
+    def all_transactions(self, request):
+        """Get all transactions in the system with summary statistics (admin only)"""
+        # Get query parameters for filtering
+        transaction_type = request.query_params.get('type', None)
+        status_filter = request.query_params.get('status', None)
+        start_date = request.query_params.get('start_date', None)
+        end_date = request.query_params.get('end_date', None)
+        
+        # Start with all transactions
+        transactions = Transaction.objects.all().order_by('-created_at')
+        
+        # Apply filters if provided
+        if transaction_type:
+            transactions = transactions.filter(transaction_type=transaction_type)
+        if status_filter:
+            transactions = transactions.filter(status=status_filter)
+        if start_date:
+            transactions = transactions.filter(created_at__gte=start_date)
+        if end_date:
+            transactions = transactions.filter(created_at__lte=end_date)
+        
+        # Prepare transaction data
+        transactions_data = []
+        for t in transactions:
+            transaction_data = {
+                'id': getattr(t, 'id', None),
+                'sender': {
+                    'id': getattr(t.sender, 'id', None),
+                    'username': getattr(t.sender, 'username', 'Unknown'),
+                    'email': getattr(t.sender, 'email', '')
+                },
+                'receiver': {
+                    'id': getattr(t.receiver, 'id', None),
+                    'username': getattr(t.receiver, 'username', 'Unknown'),
+                    'email': getattr(t.receiver, 'email', '')
+                },
+                'amount': getattr(t, 'amount', 0),
+                'type': getattr(t, 'transaction_type', ''),
+                'status': getattr(t, 'status', ''),
+                'description': getattr(t, 'description', ''),
+                'created_at': getattr(t, 'created_at', None),
+                'updated_at': getattr(t, 'updated_at', None)
+            }
+            transactions_data.append(transaction_data)
+        
+        # Prepare summary statistics
+        total_transactions = transactions.count()
+        total_amount = sum(getattr(t, 'amount', 0) for t in transactions)
+        
+        # Count by transaction type
+        type_counts = {}
+        for t in transactions:
+            t_type = getattr(t, 'transaction_type', '')
+            type_counts[t_type] = type_counts.get(t_type, 0) + 1
+        
+        # Count by status
+        status_counts = {}
+        for t in transactions:
+            t_status = getattr(t, 'status', '')
+            status_counts[t_status] = status_counts.get(t_status, 0) + 1
+        
+        response_data = {
+            'transactions': transactions_data,
+            'summary': {
+                'total_transactions': total_transactions,
+                'total_amount': total_amount,
+                'by_type': type_counts,
+                'by_status': status_counts
+            }
+        }
+        
+        return Response(response_data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'])
     def my_transactions(self, request):
