@@ -46,6 +46,72 @@ class UserProfileViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+    @action(detail=True, methods=['get'], permission_classes=[IsAdminUser])
+    def account_details(self, request, pk=None):
+        """Get detailed account information for a user (admin only)"""
+        try:
+            profile = self.get_object()
+            
+            # Get user's transaction history
+            sent_transactions = Transaction.objects.filter(sender=profile.user).order_by('-created_at')
+            received_transactions = Transaction.objects.filter(receiver=profile.user).order_by('-created_at')
+            
+            # Prepare transaction data
+            sent_transactions_data = [
+                {
+                    'id': t.id,
+                    'amount': t.amount,
+                    'type': t.transaction_type,
+                    'status': t.status,
+                    'description': t.description,
+                    'created_at': t.created_at,
+                    'receiver': t.receiver.username
+                } for t in sent_transactions
+            ]
+            
+            received_transactions_data = [
+                {
+                    'id': t.id,
+                    'amount': t.amount,
+                    'type': t.transaction_type,
+                    'status': t.status,
+                    'description': t.description,
+                    'created_at': t.created_at,
+                    'sender': t.sender.username
+                } for t in received_transactions
+            ]
+            
+            # Prepare response data
+            response_data = {
+                'user': {
+                    'id': profile.user.id,
+                    'username': profile.user.username,
+                    'email': profile.user.email,
+                    'first_name': profile.user.first_name,
+                    'last_name': profile.user.last_name,
+                    'is_active': profile.user.is_active,
+                    'date_joined': profile.user.date_joined
+                },
+                'profile': {
+                    'id': profile.id,
+                    'balance': profile.balance,
+                    'created_at': profile.created_at,
+                    'updated_at': profile.updated_at
+                },
+                'transactions': {
+                    'sent': sent_transactions_data,
+                    'received': received_transactions_data
+                }
+            }
+            
+            return Response(response_data, status=status.HTTP_200_OK)
+            
+        except UserProfile.DoesNotExist:
+            return Response(
+                {'error': 'User profile not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
     @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
     def add_balance(self, request, pk=None):
         profile = self.get_object()
