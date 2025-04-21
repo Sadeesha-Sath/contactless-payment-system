@@ -5,9 +5,14 @@ from django.contrib.auth.models import User
 from .models import UserProfile
 from .serializers import UserSerializer, UserProfileSerializer, BalanceUpdateSerializer, BatchUserCreationSerializer
 from transactions.models import Transaction
+from vendors.models import Vendor
 from typing import Dict, Any, cast
 import csv
 from django.http import HttpResponse
+from rest_framework.views import APIView
+from django.db.models import Count, Sum
+from decimal import Decimal
+from rest_framework.permissions import IsAuthenticated
 
 class IsAdminUser(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -270,4 +275,56 @@ class UserProfileViewSet(viewsets.ModelViewSet):
                 'new_balance': profile.balance
             }, status=status.HTTP_200_OK)
         
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST) 
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+# New Dashboard Stats View
+class DashboardStatsView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def get(self, request, *args, **kwargs):
+        # Basic counts
+        total_users = User.objects.count()
+        total_vendors = Vendor.objects.count()
+        total_transactions = Transaction.objects.count()
+
+        # Aggregate transaction amount
+        total_amount_result = Transaction.objects.filter(status='COMPLETED').aggregate(total=Sum('amount'))
+        total_amount = total_amount_result['total'] or Decimal('0.00')
+
+        # Transactions grouped by type
+        transactions_by_type_query = Transaction.objects.values('transaction_type') \
+                                                 .annotate(count=Count('id')) \
+                                                 .order_by('transaction_type')
+        transactions_by_type = {item['transaction_type']: item['count'] for item in transactions_by_type_query}
+
+        # Transactions grouped by status
+        transactions_by_status_query = Transaction.objects.values('status') \
+                                                   .annotate(count=Count('id')) \
+                                                   .order_by('status')
+        transactions_by_status = {item['status']: item['count'] for item in transactions_by_status_query}
+        
+        # Recent transactions (limited fields)
+        recent_transactions_query = Transaction.objects.order_by('-created_at')[:5] # Get latest 5
+        recent_transactions = [
+            {
+                'id': t.id,
+                'transaction_type': t.transaction_type,
+                'amount': t.amount,
+                'status': t.status,
+                'created_at': t.created_at
+            }
+            for t in recent_transactions_query
+        ]
+
+        # Prepare response data
+        data = {
+            'total_users': total_users,
+            'total_vendors': total_vendors,
+            'total_transactions': total_transactions,
+            'total_amount': total_amount,
+            'transactions_by_type': transactions_by_type,
+            'transactions_by_status': transactions_by_status,
+            'recent_transactions': recent_transactions,
+        }
+
+        return Response(data, status=status.HTTP_200_OK) 
