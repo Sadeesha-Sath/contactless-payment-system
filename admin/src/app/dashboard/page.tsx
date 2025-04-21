@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useQuery } from 'react-query';
+import { useQuery } from '@tanstack/react-query';
 import {
   BarChart,
   Bar,
@@ -21,15 +21,16 @@ import { DashboardStats } from '@/types';
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
 
 export default function DashboardPage() {
-  const { data: stats, isLoading } = useQuery<DashboardStats>('dashboardStats', 
-    async () => {
+  const { data: stats, isLoading } = useQuery<DashboardStats, Error>({
+    queryKey: ['dashboardStats'],
+    queryFn: async () => {
       const response = await fetch('/api/dashboard/stats');
       if (!response.ok) {
         throw new Error('Failed to fetch dashboard stats');
       }
       return response.json();
-    }
-  );
+    },
+  });
 
   if (isLoading) {
     return (
